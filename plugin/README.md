@@ -8,7 +8,7 @@
 1. 每 60 秒（可开 30 秒补检）用 Cookie 直接调 `bilibili.com` 的「@我的」和「回复我的」通知接口；
 2. **默认只处理「主人 UID @ 我」**；可以打开「回复所有人」（任何人的 @ 都回）或「回复我的」（别人回复我发的评论时也回）；
 3. 视频类：调 [video-watch](https://github.com/xiaohui5206/let-ai-read-video) 技能做**本地转写**（ffmpeg + faster-whisper，不传云端、不花 token），
-   再把文字稿交给 `dsh --profile headless` 写一条带时间戳的评论；
+   再把文字稿交给 `dsh --profile headless` 写评论——**只有主人 @ 时才写带时间戳的评论**，其他人的 @ 和「回复我的」都只闲聊、不引用时间点；
 4. 纯 HTTP 发楼中楼（`/x/v2/reply/add`），发完带 Cookie + 匿名各复查一次可见性
    （匿名看不到 = 大概率还在审核中，日志会写清楚）；
 5. 楼中楼自动纠根（`reply/reply` 反查真正的根评论），身份复核先确认「这条 @ 真是主人的评论」；

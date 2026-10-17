@@ -187,9 +187,17 @@ function buildPrompt(cfg, item, transcript) {
     lines.push('## 视频文字稿（带 [MM:SS] 时间戳，来自本地转写）')
     lines.push(transcript)
     lines.push('')
-    lines.push('如果文字稿里有值得展开的内容，挑 2~4 个真实时间点写成「MM:SS 一句话」，时间戳必须来自上面的文字稿，不许编造。')
+    if (item.src === 'at' && item.isOwner) {
+      lines.push('如果文字稿里有值得展开的内容，挑 2~4 个真实时间点写成「MM:SS 一句话」，时间戳必须来自上面的文字稿，不许编造。')
+    } else if (item.src === 'reply') {
+      lines.push('这条是「别人回复我的评论」——闲聊接话，**不要引用视频时间点、不要写 MM:SS**；文字稿只用来了解上下文，回复要短、自然接话。')
+    } else {
+      lines.push('这条是其他人的 @（不是主人）——闲聊接话就行，**不要引用视频时间点、不要写 MM:SS**；文字稿只用来了解上下文，回复要短、自然。')
+    }
   } else {
-    lines.push('这条 @ 不是视频（没有文字稿），就根据标题和 @ 原文写一句自然、有梗、别端着的话。')
+    lines.push(item.src === 'reply'
+      ? '这条是「别人回复我的评论」（不是视频 @），根据对方的话写一句自然、有梗的接话，别端着。'
+      : '这条 @ 不是视频（没有文字稿），就根据标题和 @ 原文写一句自然、有梗、别端着的话。')
   }
   lines.push('')
   lines.push('## 要求')
