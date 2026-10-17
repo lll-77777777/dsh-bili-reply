@@ -1,5 +1,11 @@
 # bilibili-reply
 
+> 📌 **本仓库有两种形态，别装错**
+> - **技能（skill）形态**：就是本目录的内容 —— 给会操作浏览器的 AI Agent 用，
+>   需要 BrowserSkill 读页面、video-watch 看懂视频。见下方「前置条件」。
+> - **插件形态**：在 [`plugin/`](plugin/README.md) 里 —— 纯 HTTP 轮询、不用开浏览器、
+>   自带可视化设置页（设置 → B站自动回复）。装法见 [`plugin/README.md`](plugin/README.md)。
+
 [English](README.en.md)
 
 一个 **AI Agent 技能**：让 AI 读懂你在 B 站 @ 它的视频，然后回你一条**带可跳转时间戳**的评论。
