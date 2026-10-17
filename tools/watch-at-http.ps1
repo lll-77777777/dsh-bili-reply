@@ -225,6 +225,7 @@ function Get-AtItemsHttp {
             text  = [string]$i.item.source_content
             oid   = [string]$i.item.subject_id
             root  = [string]$i.item.source_id
+            biz   = [int]$i.item.business_id
             ats   = $ats
         }
     }
@@ -546,6 +547,19 @@ if ($Init -or $state.cursor -eq 0) {
 
 $new = @($ownerItems | Where-Object { $_.t -gt $state.cursor -and ($state.seen -notcontains [string]$_.id) } | Sort-Object t)
 Set-StateProperty $state "last_check" (Get-Date).ToString('s')
+
+# 只看视频 @（business_id=1 且 /video/ 链接）；动态、专栏等直接标记跳过（video-watch 处理不了非视频页）
+$skipped = @($new | Where-Object { $_.biz -ne 1 -or $_.url -notmatch '/video/' })
+if ($skipped.Count -gt 0) {
+    foreach ($s in $skipped) {
+        Write-Log "跳过：非视频 @（business_id=$($s.biz)，$($s.url)）"
+        Set-StateProperty $state "seen" @($state.seen + [string]$s.id)
+        if ($s.t -gt $state.cursor) { Set-StateProperty $state "cursor" $s.t }
+    }
+    Save-State $state
+    $new = @($new | Where-Object { $_.biz -eq 1 -and $_.url -match '/video/' })
+}
+
 if ($new.Count -eq 0) {
     Save-State $state
     if (-not $SecondPass) {
