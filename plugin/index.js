@@ -24,7 +24,9 @@ const hostDeps = await loadHostDeps()
 const z = hostDeps.z
 
 import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
+import { homedir } from 'node:os'
+import { createHash } from 'node:crypto'
 import { stateDirOf, ensureDir, readJson, writeJson, appendLog, tail } from './lib/state.mjs'
 import * as bili from './lib/bili.mjs'
 import { transcribeVideo, defaultVideoWatchDir } from './lib/video.mjs'
@@ -221,7 +223,7 @@ export function apply(ctx, config) {
   const fileCfg = readJson(configFile, {})
   const cfg = normalizeConfig({ ...normalizeConfig(config || {}), ...fileCfg })
   const state = Object.assign(
-    { cursor: 0, replyCursor: 0, seen: [], lastReplyAt: 0, lastCheck: '', lastResult: '', accountName: '', replyTimes: [] },
+    { cursor: 0, replyCursor: 0, seen: [], lastReplyAt: 0, lastCheck: '', lastResult: '', accountName: '', replyTimes: [], syncedCookieHash: '' },
     readJson(stateFile, {}),
   )
   if (!Array.isArray(state.replyTimes)) state.replyTimes = []
@@ -232,6 +234,39 @@ export function apply(ctx, config) {
   }
   const saveState = () => writeJson(stateFile, state)
   const saveCfg = () => writeJson(configFile, cfg)
+
+  // ---------- 凭证单向同步：bili-reply 是真源，刷B站（dsh-bili-scroll）跟着走 ----------
+  // 两个插件各存一份 B 站凭证，以前会各自过期、各换一次。现在这里（设置页 / cookie 保存）
+  // 是唯一入口：插件加载 + cookie 变更时，把 SESSDATA / bili_jct / buvid3 / DedeUserID
+  // 写进 $DSH_HOME/bili-duty/bili_credential.json。用 cookie 哈希防回冲 —— bili-reply 的
+  // cookie 没变就不写，免得把刷B站那边扫码换来的新凭证又盖回去。刷B站没装就静默跳过。
+  const biliDutyCredFile = join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'bili-duty', 'bili_credential.json')
+  const cookieHash = (s) => {
+    try { return createHash('sha1').update(String(s || '')).digest('hex') } catch { return '' }
+  }
+  const syncCredentialToDuty = (reason = '') => {
+    try {
+      const ck = parseCookie(cfg.cookie)
+      if (!ck.SESSDATA || !ck.bili_jct || !ck.DedeUserID) return false
+      if (!existsSync(dirname(biliDutyCredFile))) return false
+      const h = cookieHash(cfg.cookie)
+      if (String(state.syncedCookieHash || '') === h) return true
+      writeJson(biliDutyCredFile, {
+        sessdata: ck.SESSDATA,
+        bili_jct: ck.bili_jct,
+        buvid3: ck.buvid3 || '',
+        dedeuserid: String(ck.DedeUserID),
+      })
+      state.syncedCookieHash = h
+      saveState()
+      log(`凭证已同步给刷B站（${reason || '自动'}，账号 ${ck.DedeUserID}）`)
+      return true
+    } catch (e) {
+      log(`凭证同步给刷B站失败：${e?.message || e}`)
+      return false
+    }
+  }
+  syncCredentialToDuty('插件启动')
 
   let running = false
   let mainTimer = null
@@ -601,6 +636,7 @@ export function apply(ctx, config) {
       }
       saveCfg()
       if (body && body.cookieChanged) accountCache = { at: 0, name: '' }
+      if (body && Object.prototype.hasOwnProperty.call(body, 'cookie')) syncCredentialToDuty('设置页更新')
       log('设置已保存')
       return sendJson(res, 200, { ok: true, config: cfg })
     }
@@ -615,6 +651,7 @@ export function apply(ctx, config) {
       cfg.cookie = String(body.cookie || '')
       saveCfg()
       accountCache = { at: 0, name: '' }
+      syncCredentialToDuty('设置页保存 cookie')
       log('cookie 已保存')
       return sendJson(res, 200, { ok: true, cookieDaysLeft: cookieDaysLeft(cfg.cookie) })
     }
