@@ -1,0 +1,22 @@
+# ============================================================================
+# dsh-bili-reply —— DSH bundle patch（插件自带的挂载声明）
+# ============================================================================
+# 装上之后，profile 只要在 `dsh.profile.bundles` 里列出本包名即生效：
+#
+#   dsh plugin --profile web add dsh-bili-reply
+#   （本地开发时用：dsh plugin --profile web add link:<你自己的插件目录>）
+#
+# 组成顺序：每个 bundle 的 patch 按 `dsh.profile.bundles` 顺序叠
+#          → 再叠 profile 自己那一层的 cordis.patch.yml（只有那层是热重载）
+# ============================================================================
+
+- insert:
+    - id: bili-reply
+      name: dsh-bili-reply
+      config:
+        # 真正的用户配置在插件自己的 config.json 里（设置页可改），这里只放默认值
+        enabled: false
+        secondPass: true
+        rateLimitMin: 3
+        maxVideoMin: 60
+        replyChars: 120

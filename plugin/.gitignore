@@ -1,0 +1,9 @@
+# 运行时 / 敏感文件（不要提交）
+config.json
+state.json
+*.log
+*.jsonl
+prompt-last.txt
+reply-*.lock
+.tmp-*
+node_modules/
