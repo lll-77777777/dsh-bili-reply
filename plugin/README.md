@@ -35,7 +35,7 @@ dsh plugin --profile web add dsh-bili-reply
 1. 打开 **设置 → B站自动回复**；
 2. 把浏览器里 B站的 Cookie 粘进「账号绑定」（F12 → Network → 任意 `bilibili.com` 请求 → 请求头里整段 Cookie，
    要含 `SESSDATA` 和 `bili_jct`）；
-3. 填「主人 UID」（主人 @ 优先回复、不受限）；
+3. 填「主人 UID」和「主人昵称」（B站通知主要看昵称，两个是双保险：UID 或昵称任一匹配就算主人；昵称留空 = 只认 UID）；
 4. 可选：打开「回复所有人」（回所有 @，受限额约束）或「回复我的」（回别人对我评论的回复）；
 5. 可选：在「人设」里填 `.md` 人设文件路径，让回复带人设风格；
 6. 点「测试登录」确认账号对；
@@ -47,6 +47,7 @@ dsh plugin --profile web add dsh-bili-reply
 | --- | --- | --- |
 | `enabled` | 自动回复总开关 | 关 |
 | `ownerMid` | 主人 UID（优先回复、不受限） | 0 |
+| `ownerName` | 主人昵称（和 UID 双保险，B站通知主要靠昵称认人；留空 = 只认 UID） | 空 |
 | `replyAll` | 回复所有人：任何人的 @ 都回（其他人受限额约束） | 关 |
 | `watchReplies` | 回复我的：别人回复我发的评论时也回 | 关 |
 | `maxReplies` | 每时间窗口最多回复几条（0 = 不限，只约束「其他人」） | 0 |

@@ -39,6 +39,8 @@ export const Config = !z ? undefined : z.object({
   enabled: z.boolean().default(false).extra('volatile', true),
   /** 主人 UID（只回这个 UID 的 @） */
   ownerMid: z.natural().default(0).extra('volatile', true),
+  /** 主人昵称（B站通知主要靠昵称认人；和 UID 一起做双保险，任一匹配就算主人） */
+  ownerName: z.string().default('').extra('volatile', true),
   /** 回复所有人：任何人的「@我」都回复（默认只回主人的） */
   replyAll: z.boolean().default(false).extra('volatile', true),
   /** 也回复「回复我的」：别人回复我发的评论时也回（默认关闭） */
@@ -76,6 +78,7 @@ export const Config = !z ? undefined : z.object({
 const DEFAULTS = {
   enabled: false,
   ownerMid: 0,
+  ownerName: '',
   replyAll: false,
   watchReplies: false,
   maxReplies: 0,
@@ -96,7 +99,7 @@ const DEFAULTS = {
 
 const NUM_KEYS = ['ownerMid', 'maxReplies', 'maxRepliesWindowMin', 'rateLimitMin', 'maxVideoMin', 'replyChars', 'transcriptMax']
 const BOOL_KEYS = ['enabled', 'replyAll', 'watchReplies', 'secondPass', 'noReply']
-const STR_KEYS = ['cookie', 'dshBin', 'headlessProfile', 'videoWatchDir', 'pythonPath', 'personaFile']
+const STR_KEYS = ['cookie', 'dshBin', 'headlessProfile', 'videoWatchDir', 'pythonPath', 'personaFile', 'ownerName']
 
 function iso(d = new Date()) {
   const p = (n) => String(n).padStart(2, '0')
@@ -372,12 +375,15 @@ export function apply(ctx, config) {
       return
     }
     const ownerMid = Number(cfg.ownerMid)
-    const atMine = fresh.filter((i) => (cfg.replyAll || Number(i.mid) === ownerMid) && (i.ats || []).includes(selfMid))
+    const ownerName = String(cfg.ownerName || '').trim()
+    // 双保险：UID 命中或昵称命中，任一匹配就算主人
+    const isOwnerAt = (i) => Number(i.mid) === ownerMid || (!!ownerName && String(i.name || '').trim() === ownerName)
+    const atMine = fresh.filter((i) => (cfg.replyAll || isOwnerAt(i)) && (i.ats || []).includes(selfMid))
     // 队列顺序：主人 @ → 回复我的 → 其他人的 @
     const queue = [
-      ...atMine.filter((i) => Number(i.mid) === ownerMid).map((i) => ({ ...i, src: 'at' })),
+      ...atMine.filter(isOwnerAt).map((i) => ({ ...i, src: 'at' })),
       ...replyFresh.map((i) => ({ ...i, src: 'reply' })),
-      ...atMine.filter((i) => Number(i.mid) !== ownerMid).map((i) => ({ ...i, src: 'at' })),
+      ...atMine.filter((i) => !isOwnerAt(i)).map((i) => ({ ...i, src: 'at' })),
     ]
     log(`发现 ${fresh.length} 条新 @、${replyFresh.length} 条回复我的，可回 ${queue.length} 条（${cfg.replyAll ? '回复所有人' : '只回主人'}${cfg.watchReplies ? '，含回复我的' : ''}）`)
     if (!queue.length) {
@@ -394,7 +400,7 @@ export function apply(ctx, config) {
       return
     }
     const item = queue[0]
-    const isOwnerItem = Number(item.mid) === ownerMid
+    const isOwnerItem = isOwnerAt(item)
     item.isOwner = isOwnerItem
     if (cfg.noReply) {
       const who = isOwnerItem ? '主人 @' : (item.src === 'reply' ? '回复我的' : '其他人的 @')
@@ -545,6 +551,7 @@ export function apply(ctx, config) {
       selfMid: Number(ck.DedeUserID || accountCache.mid || 0) || 0,
       accountName: state.accountName || accountCache.name || '',
       ownerMid: cfg.ownerMid,
+      ownerName: cfg.ownerName || '',
       replyAll: !!cfg.replyAll,
       watchReplies: !!cfg.watchReplies,
       maxReplies: cfg.maxReplies,
@@ -645,7 +652,7 @@ export function apply(ctx, config) {
     log(`HTTP 路由没挂上：${e?.message || e}`)
   }
 
-  log(`插件已加载（家=${stateDir}，总开关=${cfg.enabled ? '开' : '关'}，主人=${cfg.ownerMid || '未设置'}，范围=${cfg.replyAll ? '所有人' : '仅主人'}，回复我的=${cfg.watchReplies ? '开' : '关'}）`)
+  log(`插件已加载（家=${stateDir}，总开关=${cfg.enabled ? '开' : '关'}，主人=${cfg.ownerMid || '未设置'}${cfg.ownerName ? `「${cfg.ownerName}」` : ''}，范围=${cfg.replyAll ? '所有人' : '仅主人'}，回复我的=${cfg.watchReplies ? '开' : '关'}）`)
 
   // ---------- 启动后自检（5 秒后）：cookie 是否还有效、过期提醒 ----------
   let selfCheckTimer = null

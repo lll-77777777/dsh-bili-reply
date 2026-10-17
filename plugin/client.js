@@ -142,12 +142,15 @@ window.__ModuleLoader__.load({
       })
     }
 
-    function TextInput({ value, onCommit, placeholder, disabled, mono }) {
+    function TextInput({ value, onCommit, placeholder, disabled, mono, width }) {
       const [draft, setDraft] = React.useState(null)
       const v = draft === null ? String(value || '') : draft
+      const style = {}
+      if (width) { style.width = width; style.flex = `0 0 ${width}` }
+      if (mono) { style.fontFamily = 'ui-monospace,Consolas,monospace'; style.fontSize = '11px' }
       return h('input', {
         'data-br-input': '',
-        style: mono ? { fontFamily: 'ui-monospace,Consolas,monospace', fontSize: '11px' } : undefined,
+        style: Object.keys(style).length ? style : undefined,
         value: v,
         placeholder: placeholder || '',
         disabled: !!disabled,
@@ -309,10 +312,20 @@ window.__ModuleLoader__.load({
           h('div', { 'data-br-row': '' },
             h('div', { 'data-br-grow': '' },
               h('div', { 'data-br-label': '' }, '主人 UID'),
-              h('div', { 'data-br-note': '' }, cfg.replyAll ? '「回复所有人」已打开；这个 UID 的 @ 永远优先处理、不受限流' : '只有这个 UID 的「@我」会自动回复；其他人 @ 一律不处理')),
+              h('div', { 'data-br-note': '' }, cfg.replyAll ? '「回复所有人」已打开；这个 UID 或下面昵称匹配的 @ 永远优先处理、不受限流' : '只有这个 UID 或下面昵称匹配的「@我」会自动回复；两者任一命中就算主人')),
             NumInput({
               value: cfg.ownerMid,
               onCommit: (v) => patch({ ownerMid: v }, '主人 UID'),
+            })),
+          h('div', { 'data-br-row': '' },
+            h('div', { 'data-br-grow': '' },
+              h('div', { 'data-br-label': '' }, '主人昵称'),
+              h('div', { 'data-br-note': '' }, 'B站通知主要是看昵称认人；和 UID 一起做双保险，任一匹配就算主人。留空 = 只认 UID')),
+            TextInput({
+              value: cfg.ownerName,
+              placeholder: '比如：批倒闭不变味',
+              width: '200px',
+              onCommit: (v) => patch({ ownerName: v }, '主人昵称'),
             })),
           h('div', { 'data-br-note': '' }, `当前登录账号：${cfg.accountName || '（未获取）'}${cfg.selfMid ? `（mid=${cfg.selfMid}）` : ''}`)),
 
