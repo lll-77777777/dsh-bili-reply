@@ -19,6 +19,27 @@
 8. 启动时自检 Cookie 登录态和到期天数，每次被 @ / 回复都会记一条到「被 @ 与回复记录」，
    设置页点「查看最近 1 天」才拉取（不常驻刷新）。
 
+## 跑起来却没反应？先看这一条（headless 凭据）
+
+插件写评论时会起一个 `dsh --profile headless` 的子进程。如果 `--profile headless` 的
+profile 把 `deepseek-account` 和 `credentials` 两项关掉了，子进程拿不到任何凭据，
+**几秒钟就退出**，日志里是：
+
+```
+dsh: MISSING_CREDENTIAL: llm-deepseek: no API key for provider route "deepseek-official"
+```
+
+修法：在 `C:\Users\<你>\.dsh\profiles\headless\cordis.patch.yml` 里写
+
+```yaml
+- id: deepseek-account
+  disabled: false
+- id: credentials
+  disabled: false
+```
+
+改完不用重启 dsh，新起的子进程会重新 compose profile。
+
 ## 安装
 
 ```bash
