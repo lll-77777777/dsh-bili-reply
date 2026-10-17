@@ -44,13 +44,59 @@ Copy-Item watch-at.config.example.ps1 watch-at.config.ps1   # 填路径、$Owner
 
 | 文件 | 作用 |
 |---|---|
-| `watch-at.ps1` | 看门狗本体 |
+| `watch-at.ps1` | 看门狗本体（浏览器版） |
+| `watch-at-http.ps1` | 看门狗本体（纯 HTTP 版，不用浏览器） |
+| `cookie-remind.ps1` | 每天检查 cookie 是否快过期，到期前 1 天弹窗提醒 |
 | `watch-at.config.example.ps1` | 配置模板：复制成 `watch-at.config.ps1` 再填（那份不进版本库） |
 | `at-state.json` | 运行状态：游标 cursor、已处理 id、复用的 bsk 会话、上次回复时间 |
 | `watch-at.log` | 运行日志（含各阶段耗时与失败原因） |
 | `replies.log` | 每条自动回复的正文存档 |
 | `prompt-last.txt` | 最近一次给模型看的提示词（含文字稿），排障用 |
 | `reply.lock` | 正在回复的锁，防两个实例抢同一个标签页 |
+
+## 纯 HTTP 版：watch-at-http.ps1（不用浏览器）
+
+不碰浏览器的看门狗：登录态从 `tools/bili-cookie.txt` 读，直接用 HTTP 调 B 站接口。
+**关掉 Chrome/Edge 也能跑**，适合长期挂后台。
+
+### 先导出 cookie
+
+1. 浏览器里登录好要发言的那个 B 站账号
+2. F12 → Application / 存储 → Cookies → `https://www.bilibili.com`
+3. 至少复制这几项，拼成一行 `name=value; name=value; ...`：
+   - `SESSDATA`（最重要；HttpOnly，控制台里看不到，只能在 cookie 面板复制）
+   - `bili_jct`（发评论要的 CSRF token）
+   - `buvid3` / `buvid4`（可选，带上更像正常浏览器）
+4. 把这行存成 `tools/bili-cookie.txt`（单行，UTF-8）
+
+### 验证 + 安装
+
+```powershell
+cd tools
+.\watch-at-http.ps1 -Test        # 验证 cookie + 读通知 + 身份复核
+.\watch-at-http.ps1 -Init        # 把当前最新一条 @ 设为基准
+.\watch-at-http.ps1 -InstallTask # 装计划任务（任务名 DSH-BiliAtWatchHttp）
+```
+
+### 和浏览器版的区别
+
+| | 浏览器版 watch-at.ps1 | 纯 HTTP 版 watch-at-http.ps1 |
+|---|---|---|
+| 依赖浏览器 | 要 | **不要** |
+| 登录态 | 浏览器里现成的 | `bili-cookie.txt` |
+| 发评论 | 页面内 fetch | 直接 POST + 匿名复查 |
+| 计划任务名 | `DSH-BiliAtWatch` | `DSH-BiliAtWatchHttp` |
+
+### cookie 过期
+
+SESSDATA 大约半年过期。`cookie-remind.ps1` 每天 10:00 检查一次，**到期前 1 天**弹窗提醒：
+
+```powershell
+cd tools
+.\cookie-remind.ps1 -Test   # 立即弹一次试试
+```
+
+> 两个任务可以共存，也可以只留一个；用哪个就把另一个 `/DISABLE` 掉。
 
 ## 踩过的坑（都已在脚本里修掉）
 

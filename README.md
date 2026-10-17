@@ -130,6 +130,23 @@ cd tools
 
 装完之后你只要 @ 它，30 秒内它自己就回了 —— 检查不花模型 token，只有回复时才叫一次模型。
 
+### 不用开浏览器：纯 HTTP 版（推荐）
+
+`tools/watch-at-http.ps1` 是升级版看门狗：**完全不依赖浏览器**，直接读 `tools/bili-cookie.txt` 里的登录态调用 B 站接口。关掉 Chrome/Edge 也照常跑。
+
+```powershell
+cd tools
+# 1) 从已登录的浏览器导出 cookie（SESSDATA、bili_jct 等）到 bili-cookie.txt
+#    导出步骤见 tools/README.md
+# 2) 填 watch-at.config.ps1（同浏览器版），然后：
+.\watch-at-http.ps1 -Init
+.\watch-at-http.ps1 -InstallTask
+```
+
+好处：不用常驻浏览器；代价：cookie 会过期（约半年），到期前 `cookie-remind.ps1` 会弹窗提醒你换。
+
+> 两个版本共用一个 `watch-at.config.ps1`，切换时把不用的那个计划任务禁用即可。
+
 ## 设计要点（踩过的坑）
 
 这几条是真金白银换来的，都写进 `SKILL.md` 了：

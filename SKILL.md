@@ -173,6 +173,16 @@ Copy-Item watch-at.config.example.ps1 watch-at.config.ps1   # 填路径与两个
 **白名单**：只回 `$OwnerMid` 那个人的 @，而且被 @ 的必须是 `$SelfMid` ——
 群里那种一次 @ 一串人的通知会被自动丢掉，这正是最容易出错的地方。
 
+### 两种驱动方式
+
+| 脚本 | 驱动方式 | 需要浏览器？ |
+|---|---|---|
+| `tools/watch-at.ps1` | 在已登录的浏览器里操作（`bsk`） | 要，浏览器得开着 |
+| `tools/watch-at-http.ps1` | 纯 HTTP：读 cookie 文件直接调 B 站接口 | 不要，关掉浏览器也照跑 |
+
+纯 HTTP 版需要一次性把登录态导出到 `tools/bili-cookie.txt`（含 `SESSDATA`、`bili_jct`）。
+导出方法见 [tools/README.md](tools/README.md)。发评论前会自动用匿名身份复查可见性。
+
 节拍、阈值、以及这套东西踩过的坑，见 [tools/README.md](tools/README.md)。
 
 ---

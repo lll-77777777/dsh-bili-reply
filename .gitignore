@@ -16,3 +16,15 @@ tools/replies.log
 tools/prompt-last.txt
 tools/reply.lock
 tools/watch-at-task.xml
+
+# 纯 HTTP 自动模式（新版看门狗）运行期产物与敏感文件
+tools/bili-cookie.txt
+tools/watch-at-http.log
+tools/at-state-http.json
+tools/replies-http.log
+tools/prompt-last-http.txt
+tools/reply-http.lock
+tools/cookie-remind.log
+tools/cookie-remind-state.json
+tools/run-hidden*.vbs
+tools/.http-test.ps1
