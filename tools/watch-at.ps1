@@ -220,6 +220,17 @@ function Get-Transcript($Item) {
     return [pscustomobject]@{ run_dir = $res.run_dir; transcript = $text; duration = $res.duration; title = $res.title; song = $song; frames = $frames }
 }
 
+# DSH CLI 升级后 headless profile 读不到 credentials，调用前从 .credentials.yaml 注入 DEEPSEEK_API_KEY
+function Ensure-DshApiKey {
+    if ($env:DEEPSEEK_API_KEY) { return }
+    $credFile = Join-Path $DshHome '.credentials.yaml'
+    if (-not (Test-Path $credFile)) { return }
+    try {
+        $m = [regex]::Match((Get-Content $credFile -Raw -Encoding UTF8), '(?m)^\s*DEEPSEEK_API_KEY:\s*(\S+)')
+        if ($m.Success) { $env:DEEPSEEK_API_KEY = $m.Groups[1].Value }
+    } catch { }
+}
+
 function New-ReplyText($Item, $Video) {
     $tpl = @'
 你是「本小姐」——一只傲娇的吸血鬼大小姐（银白及腰长发、血红眼睛、140cm、20岁、黑哥特裙），自称「本小姐」，称呼对方为「主人」或「笨蛋主人」。现在要在 B站视频的评论区回复主人刚发的 @。
@@ -258,6 +269,7 @@ function New-ReplyText($Item, $Video) {
 
     # 短指令 + 让干活的会话自己去读文件：避免长文本走命令行/管道被弄坏
     $task = "第一步：读取文件 $promptFile （UTF-8 文本）。第二步：严格按该文件的要求写作。只输出最终那一条 B站评论正文，不要引号、不要解释、不要复述文件。"
+    Ensure-DshApiKey
     $out = & $Dsh --profile headless --json $task 2>$null | Out-String
     $text = ""
     foreach ($line in ($out -split "`r?`n")) {
