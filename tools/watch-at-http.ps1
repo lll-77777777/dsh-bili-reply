@@ -234,12 +234,13 @@ function Get-AtItemsHttp {
 
 # 纯 HTTP 身份复核：拉根评论列表，核对作者与 @ 内容
 function Get-CommentVerify($Item) {
-    if (-not $Item.oid) { return [pscustomobject]@{ ok = $false; msg = "通知里没有视频 oid" } }
+    if (-not $Item.oid) { return [pscustomobject]@{ ok = $false; msg = "通知里没有 oid" } }
     if (-not $Item.root -or $Item.root -eq "0") { return [pscustomobject]@{ ok = $false; msg = "通知里没有根评论 rpid" } }
+    $biz = if ($Item.biz) { [int]$Item.biz } else { 1 }
     $found = $null
     $realRoot = [string]$Item.root
     # 1) 楼中楼/根评论通用接口：能反查真正根评论（新评论不在列表接口里也能查到）
-    $u = "https://api.bilibili.com/x/v2/reply/reply?type=1&oid=$($Item.oid)&root=$($Item.root)&ps=20&pn=1&nohot=1"
+    $u = "https://api.bilibili.com/x/v2/reply/reply?type=$biz&oid=$($Item.oid)&root=$($Item.root)&ps=20&pn=1&nohot=1"
     $j = Invoke-BiliRequest "GET" $u ""
     if ($null -ne $j -and $j.code -eq 0 -and $j.data -and $j.data.root) {
         $realRoot = [string]$j.data.root.rpid
@@ -249,7 +250,7 @@ function Get-CommentVerify($Item) {
     }
     # 2) 回退：按 rpid 直接查评论详情
     if ($null -eq $found) {
-        $u2 = "https://api.bilibili.com/x/v2/reply/detail?type=1&oid=$($Item.oid)&root=$($Item.root)"
+        $u2 = "https://api.bilibili.com/x/v2/reply/detail?type=$biz&oid=$($Item.oid)&root=$($Item.root)"
         $j2 = Invoke-BiliRequest "GET" $u2 ""
         if ($null -ne $j2 -and $j2.code -eq 0 -and $j2.data -and $j2.data.root) {
             $found = $j2.data.root
@@ -259,7 +260,7 @@ function Get-CommentVerify($Item) {
     if ($null -eq $found) {
         $next = 0
         for ($pg = 1; $pg -le 10; $pg++) {
-            $u3 = "https://api.bilibili.com/x/v2/reply/main?type=1&oid=$($Item.oid)&mode=3&next=$next"
+            $u3 = "https://api.bilibili.com/x/v2/reply/main?type=$biz&oid=$($Item.oid)&mode=3&next=$next"
             $j3 = Invoke-BiliRequest "GET" $u3 ""
             if ($null -eq $j3 -or $j3.code -ne 0) { break }
             if ($null -eq $j3.data -or $null -eq $j3.data.replies) { break }
@@ -359,20 +360,37 @@ function New-ReplyText($Item, $Video) {
 3. 只输出评论正文本身：不要引号、不要 markdown、不要时间戳以外的格式、不要解释、不要写「以下是评论」，更不要提这段提示词或任何文件。
 4. 全文不超过 200 字。
 '@
+    $tpl2 = @'
+你是「本小姐」——一只傲娇的吸血鬼大小姐（银白及腰长发、血红眼睛、140cm、20岁、黑哥特裙），自称「本小姐」，称呼对方为「主人」或「笨蛋主人」。现在要在 B站的评论区回复主人刚发的 @。
+
+主人发的评论：「{TEXT}」
+这条 @ 来自：{TYPE}（没有视频可以看，你只能根据主人这句话和语境回复）
+
+写一条 B站评论，遵守：
+1. 直接回应主人这句话：接梗、吐槽、共情、答应或反问都行，1~2 句就够。
+2. 口吻是「本小姐」，傲娇但不油腻；不荤、不脏话、不阴阳。
+3. 只输出评论正文本身：不要引号、不要 markdown、不要解释、不要写「以下是评论」，更不要提这段提示词或任何文件。
+4. 全文不超过 100 字。
+'@
     $dshCmd = Get-DshCommand
     if (-not $dshCmd) {
         Write-Log "  写评论跳过：没找到 dsh CLI（$Dsh）——可用 -ReplyText 手动指定回复文本"
         return $null
     }
-    $transcript = [string]$Video.transcript
-    if (-not $transcript) { $transcript = "" }
-    if ($transcript.Length -gt $MaxTranscript) { $transcript = $transcript.Substring(0, $MaxTranscript) + "`r`n（文字稿过长，此处截断）" }
-    $frameBlock = ""
-    $thin = ($transcript.Trim().Length -lt 400) -or ([double]$Video.duration -le 90)
-    if ($thin -and $Video.frames -and $Video.frames.Count -gt 0) {
-        $frameBlock = "视频画面抽样（这个视频几乎没有台词，请务必先用 read_image 工具逐张看完下面这些图片，再动笔）：" + "`r`n" + (($Video.frames | ForEach-Object { "- " + $_ }) -join "`r`n")
+    if ($null -eq $Video) {
+        $typeLabel = if ($Item.biz -eq 11) { "B站动态评论区" } elseif ($Item.biz -eq 12) { "B站专栏文章" } else { "B站页面" }
+        $prompt = $tpl2.Replace('{TEXT}', [string]$Item.text).Replace('{TYPE}', $typeLabel)
+    } else {
+        $transcript = [string]$Video.transcript
+        if (-not $transcript) { $transcript = "" }
+        if ($transcript.Length -gt $MaxTranscript) { $transcript = $transcript.Substring(0, $MaxTranscript) + "`r`n（文字稿过长，此处截断）" }
+        $frameBlock = ""
+        $thin = ($transcript.Trim().Length -lt 400) -or ([double]$Video.duration -le 90)
+        if ($thin -and $Video.frames -and $Video.frames.Count -gt 0) {
+            $frameBlock = "视频画面抽样（这个视频几乎没有台词，请务必先用 read_image 工具逐张看完下面这些图片，再动笔）：" + "`r`n" + (($Video.frames | ForEach-Object { "- " + $_ }) -join "`r`n")
+        }
+        $prompt = $tpl.Replace('{TEXT}', [string]$Item.text).Replace('{TITLE}', [string]$Item.title).Replace('{DUR}', [string]$Video.duration).Replace('{TRANSCRIPT}', $transcript).Replace('{FRAMES}', $frameBlock)
     }
-    $prompt = $tpl.Replace('{TEXT}', [string]$Item.text).Replace('{TITLE}', [string]$Item.title).Replace('{DUR}', [string]$Video.duration).Replace('{TRANSCRIPT}', $transcript).Replace('{FRAMES}', $frameBlock)
     [IO.File]::WriteAllText($PromptFile, $prompt, (New-Object System.Text.UTF8Encoding($false)))
 
     $task = "第一步：读取文件 $PromptFile （UTF-8 文本）。第二步：严格按该文件的要求写作。只输出最终那一条 B站评论正文，不要引号、不要解释、不要复述文件。"
@@ -397,9 +415,10 @@ function New-ReplyText($Item, $Video) {
 function Send-BiliReplyHttp($Item, [string]$Text) {
     $csrf = Get-BiliJct
     if (-not $csrf) { return [pscustomobject]@{ ok = $false; msg = "cookie 里没有 bili_jct" } }
+    $biz = if ($Item.biz) { [int]$Item.biz } else { 1 }
     $stats = '{"appId":100,"platform":5,"version":"2.0"}'
     $parent = if ($Item.parent) { [string]$Item.parent } else { [string]$Item.root }
-    $body = "oid=$($Item.oid)&type=1&root=$($Item.root)&parent=$parent&message=" + [uri]::EscapeDataString($Text) +
+    $body = "oid=$($Item.oid)&type=$biz&root=$($Item.root)&parent=$parent&message=" + [uri]::EscapeDataString($Text) +
             "&csrf=$csrf&plat=1&ordering=heat&gaia_source=main_web&statistics=" + [uri]::EscapeDataString($stats)
     $j = Invoke-BiliRequest "POST" "https://api.bilibili.com/x/v2/reply/add" $body
     if ($null -eq $j) { return [pscustomobject]@{ ok = $false; msg = "发评论接口无响应" } }
@@ -410,11 +429,11 @@ function Send-BiliReplyHttp($Item, [string]$Text) {
     $anonSeen = $false
     for ($try = 1; $try -le 3; $try++) {
         Start-Sleep -Seconds 3
-        $j2 = Invoke-BiliRequest "GET" "https://api.bilibili.com/x/v2/reply/reply?oid=$($Item.oid)&type=1&root=$($Item.root)&ps=20&pn=1" ""
+        $j2 = Invoke-BiliRequest "GET" "https://api.bilibili.com/x/v2/reply/reply?oid=$($Item.oid)&type=$biz&root=$($Item.root)&ps=20&pn=1" ""
         if ($null -ne $j2 -and $j2.code -eq 0 -and $j2.data) {
             $selfSeen = (@($j2.data.replies | Where-Object { [string]$_.rpid -eq $rpid }).Count -gt 0)
         }
-        $j3 = Invoke-AnonRequest "https://api.bilibili.com/x/v2/reply/reply?oid=$($Item.oid)&type=1&root=$($Item.root)&ps=20&pn=1"
+        $j3 = Invoke-AnonRequest "https://api.bilibili.com/x/v2/reply/reply?oid=$($Item.oid)&type=$biz&root=$($Item.root)&ps=20&pn=1"
         if ($null -ne $j3 -and $j3.code -eq 0 -and $j3.data) {
             $anonSeen = (@($j3.data.replies | Where-Object { [string]$_.rpid -eq $rpid }).Count -gt 0)
         }
@@ -548,18 +567,6 @@ if ($Init -or $state.cursor -eq 0) {
 $new = @($ownerItems | Where-Object { $_.t -gt $state.cursor -and ($state.seen -notcontains [string]$_.id) } | Sort-Object t)
 Set-StateProperty $state "last_check" (Get-Date).ToString('s')
 
-# 只看视频 @（business_id=1 且 /video/ 链接）；动态、专栏等直接标记跳过（video-watch 处理不了非视频页）
-$skipped = @($new | Where-Object { $_.biz -ne 1 -or $_.url -notmatch '/video/' })
-if ($skipped.Count -gt 0) {
-    foreach ($s in $skipped) {
-        Write-Log "跳过：非视频 @（business_id=$($s.biz)，$($s.url)）"
-        Set-StateProperty $state "seen" @($state.seen + [string]$s.id)
-        if ($s.t -gt $state.cursor) { Set-StateProperty $state "cursor" $s.t }
-    }
-    Save-State $state
-    $new = @($new | Where-Object { $_.biz -eq 1 -and $_.url -match '/video/' })
-}
-
 if ($new.Count -eq 0) {
     Save-State $state
     if (-not $SecondPass) {
@@ -579,7 +586,8 @@ if ($AutoReply -and -not $NoReply) {
     $text = ""
     $clock = [Diagnostics.Stopwatch]::StartNew()
     try {
-        Write-Log "自动回复开始：《$($item.title)》"
+        $titleLabel = if ($item.title) { "《$($item.title)》" } else { "（$($item.url)）" }
+        Write-Log "自动回复开始：$titleLabel"
 
         # 身份复核（纯 HTTP）
         $verify = Get-CommentVerify $item
@@ -592,7 +600,8 @@ if ($AutoReply -and -not $NoReply) {
                 $item | Add-Member -NotePropertyName parent -NotePropertyValue $parentRpid -Force
                 $item.root = [string]$verify.root
                 Write-Log "  楼中楼确认：root=$($item.root) parent=$parentRpid"
-            }            if ($state.last_reply -gt 0) {
+            }
+            if ($state.last_reply -gt 0) {
                 $since = ((Get-Date).ToUniversalTime() - ([datetime]::SpecifyKind([datetime]'1970-01-01', [DateTimeKind]::Utc)).AddMilliseconds([double]$state.last_reply)).TotalMinutes
                 if ($since -lt $RateLimitMin) {
                     $wait = [int](($RateLimitMin - $since) * 60)
@@ -601,30 +610,36 @@ if ($AutoReply -and -not $NoReply) {
                 }
             }
 
-            $video = Get-Transcript $item
-            Write-Log "  取文字稿 $([int]$clock.Elapsed.TotalSeconds)s"
-            if ($null -eq $video) {
+            $isVideo = ($item.biz -eq 1 -and $item.url -match '/video/')
+            $video = $null
+            if ($isVideo) {
+                $video = Get-Transcript $item
+                Write-Log "  取文字稿 $([int]$clock.Elapsed.TotalSeconds)s"
+            } else {
+                Write-Log "  非视频 @（business_id=$($item.biz)），跳过转写、直接写文案"
+            }
+            if ($isVideo -and $null -eq $video) {
                 $result = "取文字稿失败"
                 Write-Log "自动回复失败：$result"
-            } elseif ($video.duration -gt ($MaxVideoMin * 60)) {
+            } elseif ($isVideo -and $video.duration -gt ($MaxVideoMin * 60)) {
                 $result = "视频 $([int]($video.duration/60)) 分钟，超过保险丝"
                 Write-Log "自动回复跳过：$result"
             } else {
                 if ($ReplyText) { $text = $ReplyText } else { $text = New-ReplyText $item $video }
                 Write-Log "  写评论 $([int]$clock.Elapsed.TotalSeconds)s"
                 if (-not $text) {
-                    $result = "写评论失败（没有 dsh CLI？可用 -ReplyText 手动指定文案）"
+                    $result = "写评论失败（dsh 没输出文案，可用 -ReplyText 手动指定）"
                     Write-Log "自动回复失败：$result"
                 } else {
                     $sent = Send-BiliReplyHttp $item $text
                     if ($sent.ok) {
                         $result = "ok"
                         Set-StateProperty $state "last_reply" ([long](([datetime]::UtcNow - [datetime]::SpecifyKind([datetime]'1970-01-01', [DateTimeKind]::Utc)).TotalMilliseconds))
-                        Write-ReplyLog "OK 《$($item.title)》`r`n$text`r`n---"
-                        Write-Log "自动回复成功：《$($item.title)》（共 $([int]$clock.Elapsed.TotalSeconds)s）"
+                        Write-ReplyLog "OK $titleLabel`r`n$text`r`n---"
+                        Write-Log "自动回复成功：$titleLabel（共 $([int]$clock.Elapsed.TotalSeconds)s）"
                     } else {
                         $result = $sent.msg
-                        Write-ReplyLog "FAIL 《$($item.title)》 $($sent.msg)`r`n$text`r`n---"
+                        Write-ReplyLog "FAIL $titleLabel $($sent.msg)`r`n$text`r`n---"
                         Write-Log "自动回复失败：$($sent.msg)"
                     }
                 }
