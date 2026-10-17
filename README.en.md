@@ -150,6 +150,12 @@ bilibili-reply/
 └── LICENSE
 ```
 
+## Acknowledgements
+
+This project is based on [bronyacccxz/dsh-bilibili-reply](https://github.com/bronyacccxz/dsh-bilibili-reply), originally by [hanserrangle (@bronyacccxz)](https://github.com/bronyacccxz).
+
+The interaction design, skill workflow, documentation framework, and the in-page inline reply approach all come from the original author. On top of that, this repository adds a browser-free HTTP watchdog, thread-reply verification fixes, and cookie-expiry reminders. Thanks to the original author for paving the way through this bumpy chain.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

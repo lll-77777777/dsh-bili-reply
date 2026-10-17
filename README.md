@@ -179,6 +179,12 @@ bilibili-reply/
 └── LICENSE
 ```
 
+## 鸣谢
+
+本项目基于 [bronyacccxz/dsh-bilibili-reply](https://github.com/bronyacccxz/dsh-bilibili-reply) 修改而来，原作者：[hanserrangle（@bronyacccxz）](https://github.com/bronyacccxz)。
+
+原作的交互设计、技能流程、文档框架与浏览器内联回复方案都来自原作者；在此基础上，本仓库新增了纯 HTTP 版看门狗（免浏览器）、身份复核的楼中楼修复、cookie 到期提醒等功能。感谢原作者先把这条坑坑洼洼的链路走了一遍。
+
 ## 许可
 
 MIT，见 [LICENSE](LICENSE)。
