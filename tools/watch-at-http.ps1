@@ -409,7 +409,7 @@ function Send-BiliReplyHttp($Item, [string]$Text) {
         Start-Sleep -Seconds 4
     }
     if ($anonSeen) { return [pscustomobject]@{ ok = $true; rpid = $rpid; msg = "ok（匿名可见）" } }
-    if ($selfSeen) { return [pscustomobject]@{ ok = $false; rpid = $rpid; msg = "自己可见但匿名看不到（rpid $rpid，疑似风控影子隐藏）" } }
+    if ($selfSeen) { return [pscustomobject]@{ ok = $false; rpid = $rpid; msg = "已发出（rpid $rpid）但匿名不可见：可能还在审核中，也可能被影子隐藏" } }
     return [pscustomobject]@{ ok = $true; rpid = $rpid; msg = "已发出但复查读不到（rpid $rpid，复查接口可能抖动，未证明公开性）" }
 }
 
@@ -587,7 +587,7 @@ if ($AutoReply -and -not $NoReply) {
                 if ($ReplyText) { $text = $ReplyText } else { $text = New-ReplyText $item $video }
                 Write-Log "  写评论 $([int]$clock.Elapsed.TotalSeconds)s"
                 if (-not $text) {
-                    $result = "写评论失败（没有 dsh CLI？可用 -ReplyText 手动指定）"
+                    $result = "写评论失败（没有 dsh CLI？可用 -ReplyText 手动指定文案）"
                     Write-Log "自动回复失败：$result"
                 } else {
                     $sent = Send-BiliReplyHttp $item $text
@@ -616,7 +616,7 @@ if ($AutoReply -and -not $NoReply) {
     Save-State $state
 
     if ($result -ne "ok") {
-        Write-Log "提示：这条没回成，下一条 @ 来时会继续；需要手动回可用 -ReplyText"
+        Write-Log "提示：评论已发出但匿名不可见（可能还在审核中），本条已标记处理、不会自动重试；如需补发，先把该 id 从 at-state-http.json 的 seen 里删掉，再用 -ReplyText 手动发送"
     }
     exit 0
 }

@@ -298,7 +298,7 @@ function Send-BiliReply([string]$SessionId, [string]$TabId, $Item, [string]$Text
             $found = $false
             if ($vm.Success) { try { $v = $vm.Value | ConvertFrom-Json; $vcode = $v.code; $found = [bool]$v.found } catch { } }
             if ($found) { return [pscustomobject]@{ ok = $true; msg = "ok（匿名可见）" } }
-            if ($vcode -eq 0) { return [pscustomobject]@{ ok = $false; msg = "发出去了但匿名看不到（rpid $rpid，被风控影子隐藏）" } }
+            if ($vcode -eq 0) { return [pscustomobject]@{ ok = $false; msg = "已发出（rpid $rpid）但匿名不可见：可能还在审核中，也可能被影子隐藏" } }
             return [pscustomobject]@{ ok = $true; msg = "ok（匿名复查不可用 code=$vcode，未验证公开性）" }
         }
         return [pscustomobject]@{ ok = $false; msg = "$($r.code) $($r.msg)" }
