@@ -4,7 +4,7 @@
  * 它是什么：把原来那套 PowerShell 看门狗（watch-at-http.ps1）搬进 DSH 插件里：
  *   1. **纯 HTTP** 轮询 B站「@我的」通知（cookie 直填，不碰浏览器）；
  *   2. 白名单：只回「主人 UID @ 我」的那条，其它通知只看不处理；
- *   3. 视频类：调 video-watch 技能做**本地转写**（不传云端、不花 token），
+ *   3. 视频类：评论里**明确要求**（总结/讲什么/时间点…）才调 video-watch 做本地转写；
  *      再把文字稿交给 `dsh --profile headless` 写文案，纯 HTTP 发楼中楼；
  *   4. 发完带 cookie + 匿名各查一次可见性（`state=17` = 审核中）；
  *   5. **设置页**（client.js）通过 `/api/bili-reply/*` 读写配置、看状态、手动检查。
@@ -329,6 +329,13 @@ export function apply(ctx, config) {
     return accountCache
   }
 
+  /** 评论里有没有「明确要求看视频内容」的指示；没有就只看标题闲聊，不转写 */
+  function shouldTranscribe(text) {
+    const t = String(text || '')
+    if (!t) return false
+    return /(总结|概括|归纳|讲(了)?(什么|啥)|说(了)?(什么|啥|些什么)|内容|转写|文字稿|时间点|时间戳|几分几秒|[0-9]{1,2}:[0-9]{2}|哪(一)?句|详细(说|讲|介绍)|分析(一下)?这|评价(一下)?这|这(期|个视频)(讲|说))/.test(t)
+  }
+
   // ---------- 主流程 ----------
   function rateLimited() {
     return cfg.rateLimitMin > 0 && Date.now() - Number(state.lastReplyAt || 0) < cfg.rateLimitMin * 60000
@@ -361,9 +368,11 @@ export function apply(ctx, config) {
     // @ 通知：parent = 被 @ 的评论（item.root）；「回复我的」：parent = 对方的回复（item.rpid）
     target.parent = String(item.rpid || item.root || '')
     target.root = String(verify.root || item.root || '')
-    // 2) 视频：转写
+    // 2) 视频：默认不转写——多数 @ 都是闲聊，转写要把整段视频下下来，慢且容易失败。
+    //    只有评论里明确要求看内容（总结/讲什么/时间点…）才转写；失败也不跳过整条回复。
+    const wantTranscript = shouldTranscribe(item.text || '')
     let transcript = ''
-    if (item.bvid) {
+    if (item.bvid && wantTranscript) {
       const vi = await bili.videoInfo(ck, item.uri)
       if (vi.ok) {
         const durMin = vi.duration / 60
@@ -621,6 +630,19 @@ export function apply(ctx, config) {
       state.lastResult = '已关闭'
       return
     }
+    // 一次性补漏（2026-10-19）：早期版本打开「回复我的」时把游标跳到当下，漏掉了开启前的回复。
+    // 这里把游标回拨到 10-17 08:00 之前，并把同批「更早就该跳过」的三条标记为已读，只补回真正漏掉的那条。
+    // 迁移只做一次（state.migReply20261019 标记）。
+    if (!state.migReply20261019 && Number(state.replyCursor || 0) > 1792190000) {
+      state.replyCursor = 1792190000
+      state.seen = Array.isArray(state.seen) ? state.seen : []
+      for (const x of ['1181962148749313', '1181751343177732', '1181670929981442']) {
+        if (!state.seen.includes(x)) state.seen.push(x)
+      }
+      state.migReply20261019 = true
+      saveState()
+      log(`一次性迁移：replyCursor 回拨到 ${state.replyCursor}，补回开启前漏掉的回复`)
+    }
     running = true
     state.lastCheck = iso()
     try {
@@ -739,9 +761,11 @@ export function apply(ctx, config) {
       Object.assign(cfg, patch)
       // 刚打开「回复我的」：从现在开始接，历史回复不补（避免一口气把旧评论全回一遍）
       if (!wasWatchReplies && cfg.watchReplies) {
-        state.replyCursor = Math.max(Number(state.replyCursor || 0), Math.floor(Date.now() / 1000))
+        // 开启时回看 6 小时：避免「刚开启就漏掉开启前的回复」；更早的历史不补，防止一口气回一堆旧评论
+        const graceFrom = Math.floor(Date.now() / 1000) - 6 * 3600
+        state.replyCursor = Math.max(Number(state.replyCursor || 0), graceFrom)
         saveState()
-        log(`「回复我的」已打开，从当前时间开始接（replyCursor=${state.replyCursor}）`)
+        log(`「回复我的」已打开，从 6 小时前开始接（replyCursor=${state.replyCursor}）`)
       }
       saveCfg()
       if (body && body.cookieChanged) accountCache = { at: 0, name: '' }
