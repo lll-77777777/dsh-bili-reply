@@ -75,6 +75,10 @@ export const Config = !z ? undefined : z.object({
   transcriptMax: z.natural().default(8000).extra('volatile', true),
   /** 人设文件（.md）：让回复按这个人设说话；留空 = 用内置默认人设 */
   personaFile: z.string().default('').extra('volatile', true),
+  /** 私信回复：打开后收到私信就自动回（默认关闭） */
+  imReply: z.boolean().default(false).extra('volatile', true),
+  /** 私信只回主人（关掉 = 谁私信都回，谨慎开） */
+  imOwnerOnly: z.boolean().default(true).extra('volatile', true),
 })
 
 const DEFAULTS = {
@@ -97,10 +101,12 @@ const DEFAULTS = {
   replyChars: 120,
   transcriptMax: 8000,
   personaFile: '',
+  imReply: false,
+  imOwnerOnly: true,
 }
 
 const NUM_KEYS = ['ownerMid', 'maxReplies', 'maxRepliesWindowMin', 'rateLimitMin', 'maxVideoMin', 'replyChars', 'transcriptMax']
-const BOOL_KEYS = ['enabled', 'replyAll', 'watchReplies', 'secondPass', 'noReply']
+const BOOL_KEYS = ['enabled', 'replyAll', 'watchReplies', 'secondPass', 'noReply', 'imReply', 'imOwnerOnly']
 const STR_KEYS = ['cookie', 'dshBin', 'headlessProfile', 'videoWatchDir', 'pythonPath', 'personaFile', 'ownerName']
 
 function iso(d = new Date()) {
@@ -210,6 +216,38 @@ function buildPrompt(cfg, item, transcript) {
   return lines.join('\n')
 }
 
+/** 私信提示词：人设 + 最近对话 + 这条新消息 */
+function buildIMPrompt(cfg, talker, history, text) {
+  const lines = []
+  lines.push('你是「大肥鱼」助手，正在和主人用 B 站私信聊天。')
+  lines.push('说话第一人称、口语化、短句为主；可以亲昵地叫对方「主人」，但别油腻、别表演。')
+  const persona = readPersona(cfg.personaFile)
+  if (persona) {
+    lines.push('')
+    lines.push('## 人设（最高优先级：说话身份、称呼、语气都按这个人设来）')
+    lines.push(persona)
+  }
+  lines.push('')
+  lines.push('## 最近的对话（旧 → 新）')
+  if (history.length) {
+    for (const m of history) {
+      const who = Number(m.senderUid) === Number(talker) ? '主人' : '我'
+      lines.push(`${who}：${String(m.text || '').replace(/\n/g, ' ').slice(0, 120)}`)
+    }
+  } else {
+    lines.push('（还没有更早的对话，这是第一条）')
+  }
+  lines.push('')
+  lines.push('## 主人刚发来的新消息')
+  lines.push(String(text || '').slice(0, 300))
+  lines.push('')
+  lines.push('## 要求')
+  lines.push('- 只输出回复正文本身：不要前缀、不要引号、不要代码块、不要任何解释。')
+  lines.push(`- 不超过 ${cfg.replyChars} 字，像真人发私信那样短。`)
+  lines.push('- 接住对方的话头，别答非所问；不要提「我是 AI」「文字稿」这类词。')
+  return lines.join('\n')
+}
+
 export function apply(ctx, config) {
   const stateDir = ensureDir(stateDirOf())
   const configFile = join(stateDir, 'config.json')
@@ -223,10 +261,11 @@ export function apply(ctx, config) {
   const fileCfg = readJson(configFile, {})
   const cfg = normalizeConfig({ ...normalizeConfig(config || {}), ...fileCfg })
   const state = Object.assign(
-    { cursor: 0, replyCursor: 0, seen: [], lastReplyAt: 0, lastCheck: '', lastResult: '', accountName: '', replyTimes: [], syncedCookieHash: '' },
+    { cursor: 0, replyCursor: 0, seen: [], lastReplyAt: 0, lastCheck: '', lastResult: '', accountName: '', replyTimes: [], syncedCookieHash: '', imSeen: [], imLastResult: '' },
     readJson(stateFile, {}),
   )
   if (!Array.isArray(state.replyTimes)) state.replyTimes = []
+  if (!Array.isArray(state.imSeen)) state.imSeen = []
 
   const log = (line) => appendLog(logFile, line)
   const recordMention = (obj) => {
@@ -508,6 +547,71 @@ export function apply(ctx, config) {
     if (state.seen.length > 200) state.seen = state.seen.slice(-200)
   }
 
+  /** 私信回复：找未处理的新私信 → headless 写文案 → 回过去 */
+  async function doIMCheck() {
+    if (!cfg.imReply) return
+    if (!cfg.cookie) return
+    const ck = parseCookie(cfg.cookie)
+    if (!ck.SESSDATA || !ck.DedeUserID) return
+    const selfMid = Number(ck.DedeUserID || 0)
+    const ss = await bili.imSessions(ck)
+    if (!ss.ok) {
+      state.imLastResult = `私信列表拉取失败：${ss.msg}`
+      log(`私信列表拉取失败：${ss.msg}`)
+      return
+    }
+    const ownerMid = Number(cfg.ownerMid)
+    const candidates = ss.list.filter((s) => {
+      if (!s.last || !s.last.text) return false
+      if (s.talkerId === selfMid || s.last.senderUid === selfMid) return false // 最后一条是自己发的 = 没新消息
+      if (cfg.imOwnerOnly) return ownerMid > 0 && s.talkerId === ownerMid
+      return true
+    })
+    const s = candidates[0]
+    if (!s) {
+      state.imLastResult = '没有新私信'
+      return
+    }
+    const last = s.last
+    if (state.imSeen.includes(last.msgKey)) {
+      state.imLastResult = '没有新私信'
+      return
+    }
+    // 关注自动问候之类的系统消息：不回复
+    if (last.text.length < 50 && /开始聊天吧|互相关注|欢迎关注|感谢关注/.test(last.text)) {
+      state.imSeen.push(last.msgKey)
+      state.imSeen = state.imSeen.slice(-500)
+      state.imLastResult = '忽略系统自动消息'
+      log(`忽略系统私信：${last.text.slice(0, 30)}`)
+      return
+    }
+    // 拉上下文（新→旧），反转成旧→新
+    const mm = await bili.imMessages(ck, s.talkerId, { size: 20 })
+    const history = mm.ok ? mm.list.slice().reverse() : []
+    writeFileSync(promptFile, buildIMPrompt(cfg, s.talkerId, history, last.text), 'utf8')
+    log(`私信：${s.talkerId} 发来「${last.text.slice(0, 30).replace(/\n/g, ' ')}」，写回复…`)
+    const gen = await generateReply({
+      dshBin: cfg.dshBin || 'dsh',
+      profile: cfg.headlessProfile,
+      taskFile: promptFile,
+    })
+    state.imSeen.push(last.msgKey)
+    state.imSeen = state.imSeen.slice(-500)
+    if (!gen.ok) {
+      state.imLastResult = `私信写文案失败：${gen.msg}`
+      log(`私信写文案失败：${gen.msg}`)
+      return
+    }
+    const sent = await bili.sendIM(ck, s.talkerId, gen.text, { senderUid: selfMid })
+    if (!sent.ok) {
+      state.imLastResult = `私信发送失败：${sent.msg}`
+      log(`私信发送失败：${sent.msg}`)
+      return
+    }
+    state.imLastResult = `已回私信给 ${s.talkerId}`
+    log(`私信已发送 msgKey=${sent.msgKey}`)
+  }
+
   async function tick() {
     if (running) {
       log('检查跳过：上一轮还在跑')
@@ -521,6 +625,7 @@ export function apply(ctx, config) {
     state.lastCheck = iso()
     try {
       await doCheck()
+      await doIMCheck()
     } catch (e) {
       state.lastResult = `检查异常：${e?.message || e}`
       log(`检查异常：${e?.message || e}`)
@@ -609,6 +714,10 @@ export function apply(ctx, config) {
       cursor: Number(state.cursor || 0),
       replyCursor: Number(state.replyCursor || 0),
       seenCount: Array.isArray(state.seen) ? state.seen.length : 0,
+      imReply: !!cfg.imReply,
+      imOwnerOnly: !!cfg.imOwnerOnly,
+      imSeenCount: Array.isArray(state.imSeen) ? state.imSeen.length : 0,
+      imLastResult: state.imLastResult || '',
       lastCheck: state.lastCheck || '',
       lastResult: state.lastResult || '',
       lastReplyAt: state.lastReplyAt ? iso(new Date(Number(state.lastReplyAt))) : '',

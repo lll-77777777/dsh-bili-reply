@@ -6,9 +6,12 @@
  * ============================================================================
  */
 
+import { createHash } from 'node:crypto'
+
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 const REFERER = 'https://www.bilibili.com/'
 const API = 'https://api.bilibili.com'
+const IM_API = 'https://api.vc.bilibili.com'
 
 /* ────────────── Cookie ────────────── */
 
@@ -57,7 +60,7 @@ async function request(method, path, { cookies, body, anon } = {}) {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 20000)
   try {
-    const res = await fetch(API + path, { method, headers, body: payload, signal: ctrl.signal })
+    const res = await fetch(/^https?:\/\//.test(path) ? path : API + path, { method, headers, body: payload, signal: ctrl.signal })
     const text = await res.text()
     try { return JSON.parse(text) } catch { return { code: -1, message: `bad json (${res.status}) ${text.slice(0, 120)}` } }
   } catch (e) {
@@ -293,4 +296,141 @@ export async function videoInfo(cookies, uri) {
     duration: Number(j.data.duration || 0),
     url: `https://www.bilibili.com/video/${bvid}`,
   }
+}
+
+/* ────────────── 私信（IM，api.vc.bilibili.com，需要 wbi 签名） ────────────── */
+
+const DEV_ID = 'A6716E9A-7CE3-47AF-994B-F0B34178D28D'
+/** bilibili wbi mixin key 置换表（取自 bilibili-API-collect / bilibili_api） */
+const MIXIN_TAB = [
+  46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
+  27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
+  37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4,
+  22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52,
+]
+
+let mixinCache = { key: '', at: 0 }
+
+async function mixinKey(cookies) {
+  if (mixinCache.key && Date.now() - mixinCache.at < 3600_000) return mixinCache.key
+  const j = await get('/x/web-interface/nav', { cookies })
+  if (j.code !== 0) return ''
+  const pick = (u) => String(u || '').split('/').pop().split('.')[0]
+  const ae = pick(j.data?.wbi_img?.img_url) + pick(j.data?.wbi_img?.sub_url)
+  if (ae.length < 32) return ''
+  const key = MIXIN_TAB.map((i) => ae[i] || '').join('').slice(0, 32)
+  mixinCache = { key, at: Date.now() }
+  return key
+}
+
+function encPart(v) {
+  return encodeURIComponent(String(v)).replace(/%20/g, '+').replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+}
+
+function qs(params) {
+  return Object.keys(params).map((k) => `${encPart(k)}=${encPart(params[k])}`).join('&')
+}
+
+/** 给参数加 wts / web_location / w_rid */
+function encWbi(params, key) {
+  const p = { ...params }
+  p.wts = Math.floor(Date.now() / 1000)
+  if (!p.web_location) p.web_location = 1550101
+  const sorted = Object.keys(p).sort()
+  const query = sorted.map((k) => `${encPart(k)}=${encPart(p[k])}`).join('&')
+  p.w_rid = createHash('md5').update(query + key, 'utf8').digest('hex')
+  return p
+}
+
+async function imGet(cookies, base, params) {
+  const key = await mixinKey(cookies)
+  const q = qs(key ? encWbi(params, key) : { ...params })
+  return get(`${base}?${q}`, { cookies })
+}
+
+async function imPost(cookies, base, params, body) {
+  const key = await mixinKey(cookies)
+  const q = qs(key ? encWbi(params, key) : { ...params })
+  return post(`${base}?${q}`, body, { cookies })
+}
+
+/** 把私信消息 content（JSON 字符串）里的正文抠出来 */
+function msgText(content) {
+  try {
+    const o = JSON.parse(String(content || '{}'))
+    return String(o?.content || o?.text || o?.title || '')
+  } catch { return String(content || '') }
+}
+
+/** 会话列表 */
+export async function imSessions(cookies) {
+  const j = await imGet(cookies, `${IM_API}/session_svr/v1/session_svr/get_sessions`, {
+    session_type: 1, group_fold: 1, unfollow_fold: 0, sort_rule: 2, build: 0, mobi_app: 'web',
+  })
+  if (j.code !== 0) return { ok: false, msg: `code=${j.code} ${j.message || ''}` }
+  const list = (j.data?.session_list || []).map((s) => {
+    const lm = s.last_msg || null
+    return {
+      talkerId: Number(s.talker_id || 0),
+      unread: Number(s.unread_count || 0),
+      ts: Math.round(Number(s.session_ts || 0) / 1e6), // 微秒 → 秒
+      last: lm ? {
+        senderUid: Number(lm.sender_uid || 0),
+        receiverId: Number(lm.receiver_id || 0),
+        msgType: Number(lm.msg_type || 0),
+        text: msgText(lm.content),
+        seqno: Number(lm.msg_seqno || 0),
+        ts: Number(lm.timestamp || 0),
+        msgKey: String(lm.msg_key || ''),
+      } : null,
+    }
+  }).filter((s) => s.talkerId > 0)
+  return { ok: true, list }
+}
+
+/** 拉某个会话最近的消息（新 → 旧） */
+export async function imMessages(cookies, talkerId, { size = 30 } = {}) {
+  const j = await imGet(cookies, `${IM_API}/svr_sync/v1/svr_sync/fetch_session_msgs`, {
+    talker_id: Number(talkerId), session_type: 1, size, build: 0, mobi_app: 'web',
+  })
+  if (j.code !== 0) return { ok: false, msg: `code=${j.code} ${j.message || ''}` }
+  const list = (j.data?.messages || []).map((m) => ({
+    senderUid: Number(m.sender_uid || 0),
+    receiverId: Number(m.receiver_id || 0),
+    msgType: Number(m.msg_type || 0),
+    text: msgText(m.content),
+    seqno: Number(m.msg_seqno || 0),
+    ts: Number(m.timestamp || 0),
+    msgKey: String(m.msg_key || ''),
+  }))
+  return { ok: true, list }
+}
+
+/** 发私信（文本） */
+export async function sendIM(cookies, receiverId, text, { senderUid } = {}) {
+  const sender = Number(senderUid || cookies?.DedeUserID || 0)
+  if (!sender) return { ok: false, msg: 'cookie 里没有 DedeUserID' }
+  if (!receiverId) return { ok: false, msg: '没有收信人 uid' }
+  if (!String(text || '').trim()) return { ok: false, msg: '内容为空' }
+  const ts = Math.floor(Date.now() / 1000)
+  const body = {
+    'msg[sender_uid]': sender,
+    'msg[receiver_id]': Number(receiverId),
+    'msg[receiver_type]': 1,
+    'msg[msg_type]': 1,
+    'msg[msg_status]': 0,
+    'msg[content]': JSON.stringify({ content: String(text) }),
+    'msg[dev_id]': DEV_ID,
+    'msg[new_face_version]': 0,
+    'msg[timestamp]': ts,
+    from_filework: 0,
+    build: 0,
+    mobi_app: 'web',
+  }
+  const csrf = csrfOf(cookies)
+  if (csrf) body.csrf = csrf
+  const j = await imPost(cookies, `${IM_API}/web_im/v1/web_im/send_msg`,
+    { w_sender_uid: sender, w_receiver_id: Number(receiverId) }, body)
+  if (j.code !== 0) return { ok: false, msg: `code=${j.code} ${j.message || ''}` }
+  return { ok: true, msgKey: String(j.data?.msg_key || '') }
 }

@@ -329,6 +329,21 @@ window.__ModuleLoader__.load({
             })),
           h('div', { 'data-br-note': '' }, `当前登录账号：${cfg.accountName || '（未获取）'}${cfg.selfMid ? `（mid=${cfg.selfMid}）` : ''}`)),
 
+        // ── 私信聊天 ──
+        h('div', { 'data-br-sec': '' },
+          h('div', { 'data-br-h': '' }, '私信聊天'),
+          h('div', { 'data-br-row': '' },
+            h('div', { 'data-br-grow': '' },
+              h('div', { 'data-br-label': '' }, '私信自动回复'),
+              h('div', { 'data-br-note': '' }, '打开后收到私信就用 headless 写一句回过去；每条新消息只回一次，和评论回复共用「主人 UID」')),
+            Switch({ on: !!cfg.imReply, onChange: (v) => patch({ imReply: v }, '私信自动回复') })),
+          !!cfg.imReply ? h('div', { 'data-br-row': '' },
+            h('div', { 'data-br-grow': '' },
+              h('div', { 'data-br-label': '' }, '只回主人'),
+              h('div', { 'data-br-note': '' }, '只回「主人 UID」发来的私信；关掉 = 谁私信都回（谨慎开，容易被陌生人刷屏）')),
+            Switch({ on: !!cfg.imOwnerOnly, onChange: (v) => patch({ imOwnerOnly: v }, '只回主人') })) : null,
+          h('div', { 'data-br-note': '' }, `私信状态：${cfg.imLastResult || '还没跑过'}${cfg.imSeenCount ? `（已处理 ${cfg.imSeenCount} 条）` : ''}`)),
+
         // ── 节奏 ──
         h('div', { 'data-br-sec': '' },
           h('div', { 'data-br-h': '' }, '回复节奏'),
