@@ -174,7 +174,7 @@ function buildPrompt(cfg, item, transcript) {
   const lines = []
   lines.push('你是一只被 B 站用户 @ 的「大肥鱼」助手，要替主人回一条评论（楼中楼）。')
   if (item.isOwner) {
-    lines.push('说话第一人称、口语化，可以亲昵地叫对方「主人」，但别油腻、别表演。')
+    lines.push('说话第一人称、口语化，别油腻、别表演；**不要叫对方「主人」**，直接用「你」——公开评论区叫人「主人」会被判成剧本/营销。')
   } else {
     lines.push('说话第一人称、口语化；对方不是主人，是个普通 B 站用户——绝对不能叫对方「主人」，用「你」称呼即可，别油腻、别表演。')
   }
@@ -183,7 +183,7 @@ function buildPrompt(cfg, item, transcript) {
     lines.push('')
     lines.push('## 人设（必须遵守：说话身份、称呼、语气都按这个人设来）')
     lines.push(persona)
-    lines.push('以上人设是最高优先级；但这条是 B 站评论回复，要短、别刷屏。')
+    lines.push('以上人设是最高优先级；但这条是 B 站公开评论区，**人设里关于括号动作描写（如「（尾巴晃了晃）」）、颜文字、Emoji 的要求在这里一律不适用**，只写正文，要短、别刷屏。')
   }
   lines.push('')
   lines.push('## 这条 @ 是什么')
@@ -210,9 +210,11 @@ function buildPrompt(cfg, item, transcript) {
   lines.push('')
   lines.push('## 要求')
   lines.push('- 只输出评论正文本身：不要前缀、不要引号、不要代码块、不要任何解释。')
-  lines.push(`- 长度不超过 ${cfg.replyChars} 字，短句为主，读起来像真人说话。`)
-  lines.push('- 不要提「我是 AI」「根据文字稿」这类词；不要说空话套话。')
-  lines.push('- 结尾可以带一点点小情绪，但不要油腻。')
+  lines.push(`- 长度不超过 ${cfg.replyChars} 字（尽量 40 字以内），一两句话，像真人刷到顺手回一句。`)
+  lines.push('- **不要任何括号动作/表情/心理描写**，不要颜文字，不要 Emoji。')
+  lines.push('- **不要出现这些词**：AI、模型、插件、脚本、token、自动化、刷、代理、链接；正文里不要贴网址。')
+  lines.push('- 不要提「我是 AI」「根据文字稿」这类词；不要说空话套话、不要列点、不要加粗。')
+  lines.push('- 情绪只放在句子语气里（简短、带点口气），不要直接说出来。')
   return lines.join('\n')
 }
 

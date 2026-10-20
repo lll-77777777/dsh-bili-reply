@@ -133,10 +133,58 @@ Every one of these cost real debugging time, and all are encoded in `SKILL.md`:
 
 ## Caveats
 
-- **It posts publicly as you.** Make sure the content is appropriate.
+### It posts publicly as you
+
+- Make sure the content is appropriate.
 - **Use a throwaway account**, and respect limits like `max_replies_per_hour`.
 - **Bilibili has anti-bot controls**: too many rapid comments trigger a captcha or API error `-352`. Don't spam.
 - **No cloud audio/video processing** — everything is local.
+
+### Comment not showing up? Check the phrasing before blaming the account
+
+Measured in Oct 2026: same Lv2 throwaway account, same day, same video — only the wording changed.
+
+| Phrasing | Result |
+|---|---|
+| Support-desk style: fixed opener + two sentences of setup + a closing summary | `state=17` (under review) for 2.5 hours, never approved |
+| Spoken style: one sentence, picking up their exact words, one emoji, no summary | **`state=0` after 30 seconds, visible anonymously** |
+
+So a stuck comment is usually not an account-level problem — it *reads* like a template. Keep it:
+
+- One sentence, under ~40 characters; shorter is better
+- Pick up whatever they just said; no "thanks for sharing" opener
+- No summaries, no lecturing, no bullet lists, no bold
+- Put the feeling in the wording itself, don't announce it
+- No `(wags tail)` stage directions, no kaomoji
+
+### Verify it is actually visible
+
+A `200 OK` from the POST endpoint does not mean anyone can see it:
+
+```text
+GET https://api.bilibili.com/x/v2/reply/detail?type=1&oid=<aid>&root=<rpid>
+```
+
+- `state: 0` = live
+- `state: 17` = under review (hours, or forever)
+- `state: 12006` = gone
+
+Then repeat the request **without cookies** — only what an anonymous visitor can fetch is genuinely public.
+
+> **`state=17` never heals on its own.** A stuck comment does not recover because a later comment got approved; delete and repost.
+> Delete: `POST /x/v2/reply/del` with `oid`, `type=1`, `rpid`, `csrf=<bili_jct>`.
+
+### Find who replied to your comment
+
+Don't page through the video's comment thread — hundreds of entries, `ps` caps at 20. Use the message feed:
+
+```text
+GET https://api.bilibili.com/x/msgfeed/reply?pn=1&ps=30&platform=web
+```
+
+`data.items[].item.source_id` is the comment they replied to, `target_id` is the thread root, `user.nickname` is who replied.
+
+> `/x/msgfeed/at` only shows @-mentions of you, not replies to you.
 
 ## Repository layout
 
